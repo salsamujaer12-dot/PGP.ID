@@ -1,0 +1,537 @@
+import Phaser from 'phaser';
+
+const config = {
+    type: Phaser.AUTO,
+    width: 360,
+    height: 640,
+    backgroundColor: '#051a0d',
+    parent: 'app',
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    scene: { preload, create }
+};
+
+const game = new Phaser.Game(config);
+
+// Simbol Mahjong asli
+const SYMBOLS = ['🀇', '🀈', '🀉', '🀊', '🀋', '🀌', '🀍', '🀎', '🀏'];
+const TILE_COLORS = {
+    '🀇': 0x1a1a2e, '🀈': 0x16213e, '🀉': 0x0f3460,
+    '🀊': 0x2e1a1a, '🀋': 0x1a2e1a, '🀌': 0x1a0a2e,
+    '🀍': 0x0a2e1a, '🀎': 0x2e0a1a, '🀏': 0x0a1a2e
+};
+
+function preload() {
+    // Nggak perlu load gambar - semua digambar pakai canvas
+}
+
+function create() {
+    const W = this.cameras.main.width;
+    const H = this.cameras.main.height;
+
+    // ============ BACKGROUND ============
+    // Gradient background
+    const bgGfx = this.add.graphics();
+    bgGfx.fillGradientStyle(0x051a0d, 0x051a0d, 0x0a2d16, 0x0a2d16, 1);
+    bgGfx.fillRect(0, 0, W, H);
+
+    // Pattern overlay (subtle diamond pattern)
+    const patternGfx = this.add.graphics();
+    patternGfx.lineStyle(1, 0x0d3318, 0.3);
+    for (let i = -H; i < W + H; i += 30) {
+        patternGfx.lineBetween(i, 0, i + H, H);
+        patternGfx.lineBetween(i + H, 0, i, H);
+    }
+
+    // ============ JUDUL ============
+    this.add.text(W / 2, 18, '✦ MAHJONG WAYS ✦', {
+        fontSize: '22px', fontStyle: 'bold', fontFamily: 'serif',
+        color: '#d4af37',
+        stroke: '#8B6914', strokeThickness: 2,
+        shadow: { offsetX: 0, offsetY: 0, color: '#d4af37', blur: 15, fill: true }
+    }).setOrigin(0.5);
+
+    // Garis dekorasi bawah judul
+    const decoGfx = this.add.graphics();
+    decoGfx.lineStyle(2, 0xd4af37, 0.6);
+    decoGfx.lineBetween(60, 38, W - 60, 38);
+    decoGfx.fillStyle(0xd4af37, 0.8);
+    decoGfx.fillCircle(60, 38, 3);
+    decoGfx.fillCircle(W - 60, 38, 3);
+    decoGfx.fillCircle(W / 2, 38, 4);
+
+    // ============ MULTIPLIER TEXT ============
+    this.multiplierText = this.add.text(W / 2, 55, '', {
+        fontSize: '14px', fontStyle: 'bold', color: '#ffcc00',
+        shadow: { offsetX: 0, offsetY: 0, color: '#ffcc00', blur: 10, fill: true }
+    }).setOrigin(0.5).setAlpha(0);
+    this.currentMultiplierIndex = 0;
+    this.multiplierSequence = [1, 2, 3, 5, 8, 15];
+
+    // ============ GRID CONFIG ============
+    this.cols = 5;
+    this.rows = 4;
+    this.tileW = 54;
+    this.tileH = 64;
+    this.spacingX = 56;
+    this.spacingY = 68;
+    const gridW = this.cols * this.spacingX;
+    const gridH = this.rows * this.spacingY;
+    this.startX = (W - gridW) / 2 + this.spacingX / 2;
+    this.startY = 100;
+
+    // ============ REEL BACKGROUND STRIPS ============
+    const reelBg = this.add.graphics();
+    for (let c = 0; c < this.cols; c++) {
+        const x = this.startX + c * this.spacingX - this.tileW / 2 - 2;
+        const y = this.startY - this.tileH / 2 - 4;
+        const stripH = this.rows * this.spacingY + 8;
+        reelBg.fillStyle(0x0a1f0f, 0.8);
+        reelBg.fillRoundedRect(x, y, this.tileW + 4, stripH, 4);
+        reelBg.lineStyle(1, 0x1a5c2a, 0.5);
+        reelBg.strokeRoundedRect(x, y, this.tileW + 4, stripH, 4);
+    }
+
+    // ============ MASK ============
+    const maskShape = this.make.graphics();
+    maskShape.fillStyle(0xffffff);
+    maskShape.fillRect(
+        this.startX - this.tileW / 2 - 6,
+        this.startY - this.tileH / 2 - 6,
+        gridW + 12,
+        gridH + 12
+    );
+    this.tileMask = maskShape.createGeometryMask();
+
+    // ============ ORNATE FRAME ============
+    const frameGfx = this.add.graphics();
+    const fx = this.startX - this.tileW / 2 - 18;
+    const fy = this.startY - this.tileH / 2 - 18;
+    const fw = gridW + 36;
+    const fh = gridH + 36;
+
+    // Outer frame
+    frameGfx.lineStyle(4, 0xd4af37, 1);
+    frameGfx.strokeRoundedRect(fx, fy, fw, fh, 8);
+    // Inner frame
+    frameGfx.lineStyle(2, 0xb8941f, 0.7);
+    frameGfx.strokeRoundedRect(fx + 6, fy + 6, fw - 12, fh - 12, 5);
+    // Corner decorations
+    const corners = [
+        [fx, fy], [fx + fw, fy], [fx, fy + fh], [fx + fw, fy + fh]
+    ];
+    corners.forEach(([cx, cy]) => {
+        frameGfx.fillStyle(0xd4af37, 1);
+        frameGfx.fillCircle(cx, cy, 7);
+        frameGfx.fillStyle(0x8B6914, 1);
+        frameGfx.fillCircle(cx, cy, 4);
+        frameGfx.fillStyle(0xf0d060, 1);
+        frameGfx.fillCircle(cx, cy, 2);
+    });
+    // Side ornaments
+    frameGfx.fillStyle(0xd4af37, 0.8);
+    frameGfx.fillCircle(fx + fw / 2, fy, 5);
+    frameGfx.fillCircle(fx + fw / 2, fy + fh, 5);
+    frameGfx.fillCircle(fx, fy + fh / 2, 5);
+    frameGfx.fillCircle(fx + fw, fy + fh / 2, 5);
+
+    // Separator lines between reels
+    const sepGfx = this.add.graphics();
+    sepGfx.lineStyle(1, 0xd4af37, 0.12);
+    for (let c = 1; c < this.cols; c++) {
+        const sx = this.startX + (c - 0.5) * this.spacingX;
+        sepGfx.lineBetween(sx, this.startY - this.tileH / 2, sx, this.startY + (this.rows - 1) * this.spacingY + this.tileH / 2);
+    }
+
+    // ============ GAME STATE ============
+    this.grid = [[], [], [], [], []];
+    this.isSpinning = false;
+    this.totalWin = 0;
+    this.balance = 1000000;
+    this.betAmount = 400;
+
+    // ============ CREATE TILE FUNCTION ============
+    this.createTile = (col, row, yPos, symbolVal) => {
+        const container = this.add.container(this.startX + (col * this.spacingX), yPos);
+        container.setMask(this.tileMask);
+
+        const bgColor = TILE_COLORS[symbolVal] || 0x1a1a2e;
+
+        // Tile bg
+        const bg = this.add.rectangle(0, 0, this.tileW, this.tileH, bgColor);
+        bg.setStrokeStyle(1.5, 0xd4af37);
+
+        // Inner highlight
+        const highlight = this.add.rectangle(0, -this.tileH / 4, this.tileW - 6, this.tileH / 2 - 2, 0xffffff, 0.04);
+
+        // Symbol
+        const txt = this.add.text(0, 0, symbolVal, { fontSize: '30px' }).setOrigin(0.5);
+
+        container.add([bg, highlight, txt]);
+        container.symbol = symbolVal;
+        return container;
+    };
+
+    // ============ INIT TILES ============
+    for (let c = 0; c < this.cols; c++) {
+        for (let r = 0; r < this.rows; r++) {
+            let sym = SYMBOLS[Phaser.Math.Between(0, SYMBOLS.length - 1)];
+            let targetY = this.startY + (r * this.spacingY);
+            let tile = this.createTile(c, r, targetY, sym);
+            this.grid[c].push(tile);
+        }
+    }
+
+    // ============ WIN TEXT ============
+    this.winBg = this.add.graphics();
+    this.winText = this.add.text(W / 2, 380, '', {
+        fontSize: '18px', fontStyle: 'bold', color: '#d4af37',
+        shadow: { offsetX: 0, offsetY: 0, color: '#d4af37', blur: 10, fill: true }
+    }).setOrigin(0.5).setAlpha(0);
+
+    // ============ BOTTOM UI PANEL ============
+    const panelY = 430;
+
+    // Panel background
+    const panelGfx = this.add.graphics();
+    panelGfx.fillGradientStyle(0x051a0d, 0x051a0d, 0x0a2d16, 0x0a2d16, 0.95);
+    panelGfx.fillRoundedRect(10, panelY, W - 20, 200, 12);
+    panelGfx.lineStyle(2, 0xd4af37, 0.4);
+    panelGfx.strokeRoundedRect(10, panelY, W - 20, 200, 12);
+
+    // Balance
+    this.add.text(50, panelY + 20, 'BALANCE', {
+        fontSize: '10px', color: '#5a8a6a', fontStyle: 'bold', letterSpacing: 3
+    }).setOrigin(0.5);
+    this.balanceText = this.add.text(50, panelY + 40, '1,000', {
+        fontSize: '16px', fontStyle: 'bold', color: '#d4af37'
+    }).setOrigin(0.5);
+
+    // Bet
+    this.add.text(W / 2, panelY + 20, 'BET', {
+        fontSize: '10px', color: '#5a8a6a', fontStyle: 'bold', letterSpacing: 3
+    }).setOrigin(0.5);
+    this.betText = this.add.text(W / 2, panelY + 40, '400', {
+        fontSize: '16px', fontStyle: 'bold', color: '#d4af37'
+    }).setOrigin(0.5);
+
+    // Bet - button
+    const btnMinus = this.add.circle(W / 2 - 45, panelY + 38, 14, 0x0a2d16)
+        .setStrokeStyle(1.5, 0xd4af37).setInteractive({ useHandCursor: true });
+    this.add.text(W / 2 - 45, panelY + 38, '−', {
+        fontSize: '18px', color: '#d4af37', fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    // Bet + button
+    const btnPlus = this.add.circle(W / 2 + 45, panelY + 38, 14, 0x0a2d16)
+        .setStrokeStyle(1.5, 0xd4af37).setInteractive({ useHandCursor: true });
+    this.add.text(W / 2 + 45, panelY + 38, '+', {
+        fontSize: '18px', color: '#d4af37', fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    const BET_OPTIONS = [400, 600, 800, 1000];
+    let betIndex = 1;
+
+    btnMinus.on('pointerdown', () => {
+        if (this.isSpinning) return;
+        betIndex = Math.max(0, betIndex - 1);
+        this.betAmount = BET_OPTIONS[betIndex];
+        this.betText.setText(this.betAmount.toString());
+    });
+    btnPlus.on('pointerdown', () => {
+        if (this.isSpinning) return;
+        betIndex = Math.min(BET_OPTIONS.length - 1, betIndex + 1);
+        this.betAmount = BET_OPTIONS[betIndex];
+        this.betText.setText(this.betAmount.toString());
+    });
+
+    // Win display area
+    this.add.text(W - 50, panelY + 20, 'WIN', {
+        fontSize: '10px', color: '#5a8a6a', fontStyle: 'bold', letterSpacing: 3
+    }).setOrigin(0.5);
+    this.winAmountText = this.add.text(W - 50, panelY + 40, '0', {
+        fontSize: '16px', fontStyle: 'bold', color: '#d4af37'
+    }).setOrigin(0.5);
+
+    // ============ SPIN BUTTON ============
+    const spinY = panelY + 110;
+    const spinBtnGfx = this.add.graphics();
+
+    // Outer ring
+    spinBtnGfx.lineStyle(4, 0xd4af37, 1);
+    spinBtnGfx.strokeCircle(W / 2, spinY, 42);
+    spinBtnGfx.lineStyle(2, 0xb8941f, 0.5);
+    spinBtnGfx.strokeCircle(W / 2, spinY, 46);
+
+    // Inner fill gradient
+    spinBtnGfx.fillStyle(0xd4af37, 1);
+    spinBtnGfx.fillCircle(W / 2, spinY, 38);
+    spinBtnGfx.fillStyle(0xf0d060, 0.5);
+    spinBtnGfx.fillCircle(W / 2, spinY - 5, 30);
+
+    // Dark center circle
+    spinBtnGfx.fillStyle(0x0a2d16, 1);
+    spinBtnGfx.fillCircle(W / 2, spinY, 28);
+
+    const spinHitArea = this.add.circle(W / 2, spinY, 42, 0x000000, 0)
+        .setInteractive({ useHandCursor: true });
+
+    this.spinBtnText = this.add.text(W / 2, spinY, 'SPIN', {
+        fontSize: '18px', fontStyle: 'bold', color: '#d4af37',
+        shadow: { offsetX: 0, offsetY: 0, color: '#d4af37', blur: 8, fill: true }
+    }).setOrigin(0.5);
+
+    this.spinContainer = this.add.container(0, 0, [spinBtnGfx, spinHitArea, this.spinBtnText]);
+
+    spinHitArea.on('pointerdown', () => {
+        if (this.isSpinning) return;
+        this.spinContainer.setScale(0.92);
+        this.startSpin();
+    });
+    spinHitArea.on('pointerup', () => this.spinContainer.setScale(1));
+    spinHitArea.on('pointerout', () => this.spinContainer.setScale(1));
+
+    // ============ SPIN LOGIC ============
+    this.startSpin = () => {
+        if (this.isSpinning) return;
+        if (this.balance < this.betAmount) return;
+
+        this.isSpinning = true;
+        this.balance -= this.betAmount;
+        this.balanceText.setText(this.balance.toLocaleString());
+        this.totalWin = 0;
+        this.winAmountText.setText('0');
+        this.winText.setAlpha(0);
+        this.currentMultiplierIndex = 0;
+        this.multiplierText.setAlpha(0);
+        this.spinBtnText.setText('...');
+
+        // Spin out old tiles
+        for (let c = 0; c < this.cols; c++) {
+            this.grid[c].forEach((tile) => {
+                this.tweens.add({
+                    targets: tile,
+                    y: tile.y + 500,
+                    alpha: 0,
+                    duration: 600,
+                    delay: c * 40,
+                    ease: 'Power2',
+                    onComplete: () => tile.destroy()
+                });
+            });
+            this.grid[c] = [];
+        }
+
+        // Drop new tiles
+        this.time.delayedCall(350, () => {
+            let tilesLanded = 0;
+            const totalTiles = this.cols * this.rows;
+
+            for (let c = 0; c < this.cols; c++) {
+                for (let r = 0; r < this.rows; r++) {
+                    let sym = SYMBOLS[Phaser.Math.Between(0, SYMBOLS.length - 1)];
+                    let finalY = this.startY + (r * this.spacingY);
+                    let tile = this.createTile(c, r, finalY - 450, sym);
+                    tile.setAlpha(0);
+                    this.grid[c].push(tile);
+
+                    this.time.delayedCall(c * 80 + r * 25, () => {
+                        tile.setAlpha(1);
+                        this.tweens.add({
+                            targets: tile,
+                            y: finalY + 12,
+                            duration: 280,
+                            ease: 'Power3',
+                            onComplete: () => {
+                                this.tweens.add({
+                                    targets: tile,
+                                    y: finalY - 4,
+                                    duration: 100,
+                                    onComplete: () => {
+                                        this.tweens.add({
+                                            targets: tile,
+                                            y: finalY,
+                                            duration: 60,
+                                            onComplete: () => {
+                                                // Flash on land
+                                                const flash = this.add.rectangle(
+                                                    tile.x, tile.y, this.tileW, this.tileH, 0xffffff, 0.25
+                                                );
+                                                this.tweens.add({
+                                                    targets: flash, alpha: 0, duration: 150,
+                                                    onComplete: () => flash.destroy()
+                                                });
+                                                tilesLanded++;
+                                                if (tilesLanded === totalTiles) {
+                                                    this.time.delayedCall(200, () => this.checkWin());
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+            }
+        });
+    };
+
+    // ============ WIN CHECK ============
+    this.checkWin = () => {
+        let winTiles = [];
+        let currentWinCoins = 0;
+        let symbolsInReel1 = [...new Set(this.grid[0].map(t => t.symbol))];
+
+        symbolsInReel1.forEach(sym => {
+            let matchCount = 1;
+            let waysMultiplier = this.grid[0].filter(t => t.symbol === sym).length;
+
+            for (let c = 1; c < this.cols; c++) {
+                let countInCol = this.grid[c].filter(t => t.symbol === sym).length;
+                if (countInCol > 0) {
+                    matchCount++;
+                    waysMultiplier *= countInCol;
+                } else {
+                    break;
+                }
+            }
+
+            if (matchCount >= 3) {
+                let basePayout = 0;
+                if (matchCount === 3) basePayout = 2;
+                if (matchCount === 4) basePayout = 5;
+                if (matchCount === 5) basePayout = 10;
+                currentWinCoins += (basePayout * waysMultiplier * this.betAmount);
+
+                for (let c = 0; c < matchCount; c++) {
+                    this.grid[c].forEach(t => {
+                        if (t.symbol === sym && !winTiles.includes(t)) winTiles.push(t);
+                    });
+                }
+            }
+        });
+
+        if (winTiles.length > 0) {
+            let actualMultiplier = this.multiplierSequence[this.currentMultiplierIndex];
+            this.totalWin += (currentWinCoins * actualMultiplier);
+            this.winAmountText.setText(this.totalWin.toLocaleString());
+
+            // Show win text
+            this.winText.setText(`🏆 WIN: ${this.totalWin.toLocaleString()} 🏆`);
+            this.winText.setAlpha(1);
+            this.tweens.add({
+                targets: this.winText, scaleX: 1.2, scaleY: 1.2, duration: 200, yoyo: true
+            });
+
+            // Glow on winning tiles
+            winTiles.forEach((t, i) => {
+                const glow = this.add.rectangle(t.x, t.y, this.tileW + 10, this.tileH + 10, 0xd4af37, 0.5);
+                this.tweens.add({
+                    targets: glow, alpha: 0, scaleX: 1.5, scaleY: 1.5,
+                    duration: 400, delay: i * 30, onComplete: () => glow.destroy()
+                });
+            });
+
+            // Destroy with animation + particles
+            this.time.delayedCall(500, () => {
+                this.tweens.add({
+                    targets: winTiles,
+                    scaleX: 0, scaleY: 0, alpha: 0,
+                    duration: 300, ease: 'Back.easeIn',
+                    onComplete: () => {
+                        winTiles.forEach(t => {
+                            // Gold particles
+                            for (let p = 0; p < 6; p++) {
+                                const particle = this.add.circle(
+                                    t.x + Phaser.Math.Between(-20, 20),
+                                    t.y + Phaser.Math.Between(-20, 20),
+                                    Phaser.Math.Between(2, 5), 0xd4af37
+                                );
+                                this.tweens.add({
+                                    targets: particle,
+                                    y: particle.y - Phaser.Math.Between(40, 100),
+                                    x: particle.x + Phaser.Math.Between(-50, 50),
+                                    alpha: 0, duration: Phaser.Math.Between(400, 800),
+                                    onComplete: () => particle.destroy()
+                                });
+                            }
+                            t.destroy();
+                        });
+                        this.cascadeDown();
+                    }
+                });
+            });
+        } else {
+            if (this.totalWin > 0) {
+                this.balance += this.totalWin;
+                this.balanceText.setText(this.balance.toLocaleString());
+            }
+            this.isSpinning = false;
+            this.spinBtnText.setText('SPIN');
+        }
+    };
+
+    // ============ CASCADE ============
+    this.cascadeDown = () => {
+        let tilesDropped = 0;
+        let expectedDrops = 0;
+
+        for (let c = 0; c < this.cols; c++) {
+            this.grid[c] = this.grid[c].filter(t => t.active);
+            let missingCount = this.rows - this.grid[c].length;
+            expectedDrops += missingCount;
+
+            this.grid[c].forEach((tile, index) => {
+                let targetY = this.startY + (index + missingCount) * this.spacingY;
+                if (Math.abs(tile.y - targetY) > 2) {
+                    expectedDrops++;
+                    this.tweens.add({
+                        targets: tile, y: targetY, duration: 550,
+                        ease: 'Bounce.easeOut',
+                        onComplete: () => {
+                            tilesDropped++;
+                            if (tilesDropped === expectedDrops) this.finishCascade();
+                        }
+                    });
+                }
+            });
+
+            let newTiles = [];
+            for (let i = 0; i < missingCount; i++) {
+                let sym = SYMBOLS[Phaser.Math.Between(0, SYMBOLS.length - 1)];
+                let finalY = this.startY + (i * this.spacingY);
+                let tile = this.createTile(c, i, finalY - 350, sym);
+                newTiles.push(tile);
+                this.tweens.add({
+                    targets: tile, y: finalY, duration: 600,
+                    ease: 'Bounce.easeOut', delay: 80,
+                    onComplete: () => {
+                        tilesDropped++;
+                        if (tilesDropped === expectedDrops) this.finishCascade();
+                    }
+                });
+            }
+            this.grid[c] = [...newTiles, ...this.grid[c]];
+        }
+
+        if (expectedDrops === 0) this.finishCascade();
+    };
+
+    // ============ FINISH CASCADE ============
+    this.finishCascade = () => {
+        if (this.currentMultiplierIndex < this.multiplierSequence.length - 1) {
+            this.currentMultiplierIndex++;
+            let mult = this.multiplierSequence[this.currentMultiplierIndex];
+            this.multiplierText.setText(`⚡ MULTIPLIER x${mult} ⚡`);
+            this.multiplierText.setAlpha(1);
+            this.tweens.add({
+                targets: this.multiplierText, scaleX: 1.3, scaleY: 1.3,
+                duration: 150, yoyo: true
+            });
+        }
+        this.time.delayedCall(300, () => this.checkWin());
+    };
+}
