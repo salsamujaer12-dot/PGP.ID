@@ -1,4 +1,3 @@
-//test
 const config = {
   type: Phaser.AUTO,
   width: 360,
@@ -138,43 +137,29 @@ function create() {
   }
 
   // ============ STATE ============
-this.logicGrid = ReelManager.generateGrid(false);
-this.grid = [[],[],[],[],[]];
-this.isSpinning = false;
-this.totalWin = 0;
-this.balance = 1000000;
-this.betAmount = 400;
-this.lockedWilds = [];
-this.freeSpinState = FreeSpinManager.create();
-this.reelSpeeds = [0, 0, 0, 0, 0];
-this.reelTargetSpeeds = [0, 0, 0, 0, 0];
-this.reelAcceleration = 0.5;
-this.reelDeceleration = 0.3;
-this.reelStates = ['stopped', 'stopped', 'stopped', 'stopped', 'stopped'];
-this.reelStopDelays = [0, 100, 200, 300, 400];
-this.spinDuration = 2000;
-this.spinStartTime = 0;
-this.reelContainers = [];
+  this.logicGrid = ReelManager.generateGrid(false);
+  this.grid = [[],[],[],[],[]];
+  this.isSpinning = false;
+  this.totalWin = 0;
+  this.balance = 1000000;
+  this.betAmount = 400;
+  this.lockedWilds = [];
+  this.freeSpinState = FreeSpinManager.create();
 
-// BUFFER UNTUK LOOP SEAMLESS
-this.bufferSize = 3; // Jumlah tiles di atas dan bawah untuk seamless loop
-this.totalVisibleRows = this.rows + (this.bufferSize * 2);
-
-// ============ CREATE TILE ============
-this.createTile = (col, row, yPos, symbolKey) => {
- const container = scene.add.container(scene.startX + col * scene.spacingX, yPos);
- container.setMask(scene.tileMask);
- 
- const bgColor = TILE_COLORS[symbolKey] || 0x1a1a2e;
- const bg = scene.add.rectangle(0, 0, scene.tileW, scene.tileH, bgColor);
- bg.setStrokeStyle(1.5, 0x9333ea);
- 
- const highlight = scene.add.rectangle(0, -scene.tileH/4, scene.tileW-6, scene.tileH/2-2, 0xffffff, 0.04);
- 
- const sym = PAYTABLE.SYMBOLS[symbolKey];
- const label = sym ? sym.label : '?';
- const txt = scene.add.text(0, 0, label, { fontSize
-: '30px' }).setOrigin(0.5);
+  // ============ CREATE TILE ============
+  this.createTile = (col, row, yPos, symbolKey) => {
+    const container = scene.add.container(scene.startX + col * scene.spacingX, yPos);
+    container.setMask(scene.tileMask);
+    
+    const bgColor = TILE_COLORS[symbolKey] || 0x1a1a2e;
+    const bg = scene.add.rectangle(0, 0, scene.tileW, scene.tileH, bgColor);
+    bg.setStrokeStyle(1.5, 0x9333ea);
+    
+    const highlight = scene.add.rectangle(0, -scene.tileH/4, scene.tileW-6, scene.tileH/2-2, 0xffffff, 0.04);
+    
+    const sym = PAYTABLE.SYMBOLS[symbolKey];
+    const label = sym ? sym.label : '?';
+    const txt = scene.add.text(0, 0, label, { fontSize: '30px' }).setOrigin(0.5);
     container.add([bg, highlight, txt]);
     container.symbolKey = symbolKey;
 
