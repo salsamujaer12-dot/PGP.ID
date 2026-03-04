@@ -146,6 +146,15 @@ this.balance = 1000000;
 this.betAmount = 400;
 this.lockedWilds = [];
 this.freeSpinState = FreeSpinManager.create();
+this.reelSpeeds = [0, 0, 0, 0, 0];
+this.reelTargetSpeeds = [0, 0, 0, 0, 0];
+this.reelAcceleration = 0.5;
+this.reelDeceleration = 0.3;
+this.reelStates = ['stopped', 'stopped', 'stopped', 'stopped', 'stopped'];
+this.reelStopDelays = [0, 100, 200, 300, 400];
+this.spinDuration = 2000;
+this.spinStartTime = 0;
+this.reelContainers = [];
 
 // BUFFER UNTUK LOOP SEAMLESS
 this.bufferSize = 3; // Jumlah tiles di atas dan bawah untuk seamless loop
@@ -248,241 +257,330 @@ this.createTile = (col, row, yPos, symbolKey) => {
   spinHitArea.on('pointerup', () => scene.spinContainer.setScale(1));
   spinHitArea.on('pointerout', () => scene.spinContainer.setScale(1));
 
-  // ============ SPIN LOGIC ============
-  this.startSpin = () => {
-    if (scene.isSpinning) return;
-    const fs = scene.freeSpinState;
+// ============ SPIN LOGIC ============
+// HAPUS method startSpin yang lama dan ganti dengan ini:
 
-    if (!fs.active) {
-      if (scene.balance < scene.betAmount) return;
-      scene.balance -= scene.betAmount;
-      scene.balanceText.setText(scene.balance.toLocaleString());
-    }
+this.startSpin = () => {
+  if (scene.isSpinning) return;
+  const fs = scene.freeSpinState;
 
-    scene.isSpinning = true;
-    scene.totalWin = 0;
-    scene.winAmountText.setText('0');
-    scene.winText.setAlpha(0);
-    scene.currentMultiplierIndex = 0;
-    scene.multiplierText.setAlpha(0);
-    scene.spinBtnText.setText('...');
+  if (!fs.active) {
+    if (scene.balance < scene.betAmount) return;
+    scene.balance -= scene.betAmount;
+    scene.balanceText.setText(scene.balance.toLocaleString());
+  }
 
-    // Spin out old tiles
-    for (let c = 0; c < scene.cols; c++) {
-      scene.grid[c].forEach(tile => {
-        scene.tweens.add({
-          targets: tile, y: tile.y + 500, alpha: 0, duration: 600, delay: c * 40, ease: 'Power2',
-          onComplete: () => tile.destroy()
-        });
-      });
-      scene.grid[c] = [];
-    }
+  scene.isSpinning = true;
+  scene.totalWin = 0;
+  scene.winAmountText.setText('0');
+  scene.winText.setAlpha(0);
+  scene.currentMultiplierIndex = 0;
+  scene.multiplierText.setAlpha(0);
+  scene.spinBtnText.setText('...');
 
-    // Generate new grid
-    scene.logicGrid = ReelManager.generateGrid(fs.active);
+  // Reset reel states
+  scene.reelStates = ['spinning', 'spinning', 'spinning', 'spinning', 'spinning'];
+  scene.reelTargetSpeeds = [15, 15, 15, 15, 15];
+  scene.spinStartTime = scene.time.now;
 
-    // Dragon mode features
-    if (fs.active && fs.expandingWild) {
-      scene.logicGrid = DragonModeManager.applyExpandingWild(scene.logicGrid);
-    }
-    if (fs.active && fs.randomWildReel) {
-      scene.logicGrid = DragonModeManager.applyRandomWildReel(scene.logicGrid);
-    }
-
-    // Check scatters before dropping
-    const scatterCounts = WaysCalculator.countScatters(scene.logicGrid);
-    const scatterResult = ScatterSystem.evaluate(scatterCounts);
-
-    if (scatterResult && !fs.active) {
-      scene.freeSpinState = FreeSpinManager.activate(scatterResult.tier, scatterResult.freeSpins);
-      scene.fsText.setText('🐉 ' + scatterResult.tier.type.toUpperCase() + ' DRAGON — ' + scatterResult.freeSpins + ' FREE SPINS!');
-      scene.fsText.setAlpha(1);
-      scene.tweens.add({ targets: scene.fsText, scaleX: 1.3, scaleY: 1.3, duration: 200, yoyo: true });
-    }
-
-    // Drop new tiles
-    scene.time.delayedCall(350, () => {
-      let tilesLanded = 0;
-      const totalTiles = scene.cols * scene.rows;
-
-      for (let c = 0; c < scene.cols; c++) {
-        for (let r = 0; r < scene.rows; r++) {
-          const symKey = scene.logicGrid[c][r];
-          const finalY = scene.startY + r * scene.spacingY;
-          const tile = scene.createTile(c, r, finalY - 450, symKey);
-          tile.setAlpha(0);
-          scene.grid[c].push(tile);
-
-          scene.time.delayedCall(c * 80 + r * 25, () => {
-            tile.setAlpha(1);
-            scene.tweens.add({
-              targets: tile, y: finalY + 12, duration: 280, ease: 'Power3',
-              onComplete: () => {
-                scene.tweens.add({
-                  targets: tile, y: finalY - 4, duration: 100,
-                  onComplete: () => {
-                    scene.tweens.add({
-                      targets: tile, y: finalY, duration: 60,
-                      onComplete: () => {
-                        const flash = scene.add.rectangle(tile.x, tile.y, scene.tileW, scene.tileH, 0xffffff, 0.2);
-                        scene.tweens.add({ targets: flash, alpha: 0, duration: 150, onComplete: () => flash.destroy() });
-                        tilesLanded++;
-                        if (tilesLanded === totalTiles) {
-                          scene.time.delayedCall(200, () => scene.checkWin(1));
-                        }
-                      }
-                    });
-                  }
-                });
-              }
-            });
-          });
-        }
-      }
-    });
-  };
-
-  // ============ WIN CHECK ============
-  this.checkWin = (cascadeRound) => {
-    const wins = WaysCalculator.calculateWins(scene.logicGrid, scene.betAmount);
-
-    if (wins.length === 0) {
-      scene.lockedWilds = GoldenTransform.tickLocks(scene.lockedWilds);
-
-      if (scene.totalWin > 0) {
-        scene.balance += scene.totalWin;
-        scene.balanceText.setText(scene.balance.toLocaleString());
-        scene.winText.setText('🏆 TOTAL WIN: ' + scene.totalWin.toLocaleString() + ' 🏆');
-        scene.winText.setAlpha(1);
-        scene.tweens.add({ targets: scene.winText, scaleX: 1.2, scaleY: 1.2, duration: 200, yoyo: true });
-      }
-
-      // Tick free spins
-      if (scene.freeSpinState.active) {
-        scene.freeSpinState = FreeSpinManager.tick(scene.freeSpinState);
-        if (scene.freeSpinState.active) {
-          scene.fsText.setText('FREE SPINS: ' + scene.freeSpinState.spinsRemaining + ' left');
-          scene.fsText.setAlpha(1);
-          // Auto spin next free spin
-          scene.time.delayedCall(1500, () => {
-            scene.isSpinning = false;
-            scene.spinBtnText.setText('SPIN');
-            scene.startSpin();
-          });
-          return;
-        } else {
-          scene.fsText.setText('🐉 DRAGON MODE COMPLETE!');
-          scene.tweens.add({ targets: scene.fsText, alpha: 0, duration: 3000, delay: 1500 });
-        }
-      }
-
-      scene.isSpinning = false;
-      scene.spinBtnText.setText('SPIN');
-      return;
-    }
-
-    // Golden transform
-    const transformed = GoldenTransform.transform(scene.logicGrid, wins);
-    scene.logicGrid = transformed.grid;
-    scene.lockedWilds = [...scene.lockedWilds, ...transformed.newLocks];
-
-    // Calculate win
-    const roundWin = WinManager.applyMultiplier(wins, cascadeRound, scene.freeSpinState.globalMultiplier);
-    const mult = MultiplierManager.getCascadeMultiplier(cascadeRound);
-    scene.totalWin += roundWin;
-    scene.winAmountText.setText(scene.totalWin.toLocaleString());
-
-    scene.multiplierText.setText('⚡ CASCADE x' + mult + ' ⚡');
-    scene.multiplierText.setAlpha(1);
-    scene.tweens.add({ targets: scene.multiplierText, scaleX: 1.3, scaleY: 1.3, duration: 150, yoyo: true });
-
-    scene.winText.setText('+' + roundWin.toLocaleString());
-    scene.winText.setAlpha(1);
-    scene.tweens.add({ targets: scene.winText, scaleX: 1.2, scaleY: 1.2, duration: 200, yoyo: true });
-
-    // Animate exploding tiles
-    const exploding = CascadeManager.getExplodingPositions(wins);
-    const winTiles = [];
-    for (const key of exploding) {
-      const [c, r] = key.split(',').map(Number);
-      if (scene.grid[c] && scene.grid[c][r]) winTiles.push({ tile: scene.grid[c][r], col: c, row: r });
-    }
-
-    // Glow
-    winTiles.forEach((wt, i) => {
-      const glow = scene.add.rectangle(wt.tile.x, wt.tile.y, scene.tileW + 10, scene.tileH + 10, 0x9333ea, 0.5);
-      scene.tweens.add({ targets: glow, alpha: 0, scaleX: 1.5, scaleY: 1.5, duration: 400, delay: i * 30, onComplete: () => glow.destroy() });
-    });
-
-    // Destroy + particles
-    scene.time.delayedCall(500, () => {
-      const tilesToDestroy = winTiles.map(wt => wt.tile);
+  // Hapus semua tiles lama dengan efek blur
+  scene.grid.forEach((column, colIndex) => {
+    column.forEach(tile => {
       scene.tweens.add({
-        targets: tilesToDestroy, scaleX: 0, scaleY: 0, alpha: 0, duration: 300, ease: 'Back.easeIn',
-        onComplete: () => {
-          tilesToDestroy.forEach(t => {
-            for (let p = 0; p < 6; p++) {
-              const particle = scene.add.circle(
-                t.x + Phaser.Math.Between(-20, 20), t.y + Phaser.Math.Between(-20, 20),
-                Phaser.Math.Between(2, 5), 0xa855f7
-              );
-              scene.tweens.add({
-                targets: particle, y: particle.y - Phaser.Math.Between(40, 100),
-                x: particle.x + Phaser.Math.Between(-50, 50), alpha: 0,
-                duration: Phaser.Math.Between(400, 800), onComplete: () => particle.destroy()
-              });
-            }
-            t.destroy();
-          });
-
-          // Update logic grid: remove, gravity, refill
-          scene.logicGrid = CascadeManager.removeWinningSymbols(scene.logicGrid, wins);
-          scene.logicGrid = CascadeManager.applyGravity(scene.logicGrid);
-          scene.logicGrid = ReelManager.refillGrid(scene.logicGrid, scene.freeSpinState.active);
-
-          // Dragon mode on refill
-          if (scene.freeSpinState.active && scene.freeSpinState.expandingWild) {
-            scene.logicGrid = DragonModeManager.applyExpandingWild(scene.logicGrid);
-          }
-
-          scene.cascadeDown(cascadeRound + 1);
-        }
+        targets: tile,
+        scaleX: 0.8,
+        scaleY: 0.8,
+        alpha: 0,
+        y: tile.y + 100,
+        duration: 300,
+        delay: colIndex * 50,
+        ease: 'Power2',
+        onComplete: () => tile.destroy()
       });
     });
-  };
+    scene.grid[colIndex] = [];
+  });
 
-  // ============ CASCADE DOWN ============
-  this.cascadeDown = (nextRound) => {
-    // Rebuild all visual tiles from logicGrid
-    for (let c = 0; c < scene.cols; c++) {
-      scene.grid[c].forEach(t => { if (t && t.active) t.destroy(); });
-      scene.grid[c] = [];
+  // Generate grid baru
+  scene.logicGrid = ReelManager.generateGrid(fs.active);
+
+  // Dragon mode features
+  if (fs.active && fs.expandingWild) {
+    scene.logicGrid = DragonModeManager.applyExpandingWild(scene.logicGrid);
+  }
+  if (fs.active && fs.randomWildReel) {
+    scene.logicGrid = DragonModeManager.applyRandomWildReel(scene.logicGrid);
+  }
+
+  // Check scatters
+  const scatterCounts = WaysCalculator.countScatters(scene.logicGrid);
+  const scatterResult = ScatterSystem.evaluate(scatterCounts);
+
+  if (scatterResult && !fs.active) {
+    scene.freeSpinState = FreeSpinManager.activate(scatterResult.tier, scatterResult.freeSpins);
+    scene.fsText.setText('🐉 ' + scatterResult.tier.type.toUpperCase() + ' DRAGON — ' + scatterResult.freeSpins + ' FREE SPINS!');
+    scene.fsText.setAlpha(1);
+    scene.tweens.add({ targets: scene.fsText, scaleX: 1.3, scaleY: 1.3, duration: 200, yoyo: true });
+  }
+
+  // Mulai animasi reel spinning
+  scene.startReelAnimation();
+};
+
+// ============ METHOD BARU: ANIMASI REEL SPINNING ============
+this.startReelAnimation = () => {
+  // Buat container untuk setiap reel dengan tiles tambahan untuk efek loop
+  scene.reelContainers = [];
+  
+  for (let c = 0; c < scene.cols; c++) {
+    const container = scene.add.container(scene.startX + c * scene.spacingX, scene.startY);
+    container.setMask(scene.tileMask);
+    scene.reelContainers.push(container);
+    
+    // Buat lebih banyak tiles untuk efek loop yang smooth
+    const totalTilesInReel = scene.rows + 6; // 3 di atas, 3 di bawah
+    
+    for (let i = 0; i < totalTilesInReel; i++) {
+      const row = i - 3; // Mulai dari -3 sampai rows+2
+      const yPos = row * scene.spacingY;
+      
+      // Pilih simbol random untuk efek spinning
+      const symbols = Object.keys(PAYTABLE.SYMBOLS);
+      const randomSymbol = symbols[Math.floor(Math.random() * symbols.length)];
+      
+      const tile = scene.createTile(c, row, yPos, randomSymbol);
+      tile.setData('isSpinning', true);
+      container.add(tile);
     }
+  }
 
-    let tilesLanded = 0;
-    const totalTiles = scene.cols * scene.rows;
+  // Update loop untuk animasi reel
+  scene.time.addEvent({
+    delay: 16, // ~60fps
+    callback: scene.updateReelAnimation,
+    callbackScope: scene,
+    loop: true
+  });
 
-    for (let c = 0; c < scene.cols; c++) {
-      for (let r = 0; r < scene.rows; r++) {
-        const symKey = scene.logicGrid[c][r];
-        const finalY = scene.startY + r * scene.spacingY;
-        const tile = scene.createTile(c, r, finalY - 200, symKey);
-        tile.setAlpha(0);
-        scene.grid[c].push(tile);
+  // Set waktu stop untuk setiap reel
+  for (let c = 0; c < scene.cols; c++) {
+    scene.time.delayedCall(scene.spinDuration + scene.reelStopDelays[c], () => {
+      scene.stopReel(c);
+    });
+  }
+};
 
-        scene.time.delayedCall(c * 40 + r * 20, () => {
-          tile.setAlpha(1);
-          scene.tweens.add({
-            targets: tile, y: finalY, duration: 450, ease: 'Bounce.easeOut',
-            onComplete: () => {
-              tilesLanded++;
-              if (tilesLanded === totalTiles) {
-                scene.time.delayedCall(300, () => scene.checkWin(nextRound));
-              }
-            }
-          });
-        });
+// ============ METHOD BARU: UPDATE ANIMASI REEL ============
+this.updateReelAnimation = () => {
+  const now = scene.time.now;
+  const elapsed = now - scene.spinStartTime;
+  
+  for (let c = 0; c < scene.cols; c++) {
+    if (scene.reelStates[c] === 'stopped') continue;
+    
+    // Update kecepatan
+    if (scene.reelSpeeds[c] < scene.reelTargetSpeeds[c]) {
+      scene.reelSpeeds[c] += scene.reelAcceleration;
+    }
+    
+    // Perlambatan jika akan berhenti
+    if (scene.reelStates[c] === 'stopping' && scene.reelSpeeds[c] > 0) {
+      scene.reelSpeeds[c] -= scene.reelDeceleration;
+      if (scene.reelSpeeds[c] <= 0) {
+        scene.reelSpeeds[c] = 0;
+        scene.reelStates[c] = 'stopped';
+        scene.finalizeReel(c);
+        continue;
       }
     }
-  };
-}
+    
+    // Gerakkan tiles dalam container
+    const container = scene.reelContainers[c];
+    if (!container) continue;
+    
+    container.y += scene.reelSpeeds[c];
+    
+    // Efek blur pada tiles yang bergerak cepat
+    if (scene.reelSpeeds[c] > 5) {
+      container.list.forEach(child => {
+        if (child.getData('isSpinning')) {
+          child.alpha = 0.7 + Math.sin(now * 0.01 + c) * 0.3;
+        }
+      });
+    }
+    
+    // Loop tiles yang keluar dari viewport
+    if (container.y > scene.startY + scene.spacingY) {
+      container.y -= scene.spacingY;
+      
+      // Ambil tile paling atas, pindahkan ke bawah dengan simbol baru
+      const topTile = container.getAt(0);
+      if (topTile) {
+        container.moveTo(topTile, container.length - 1);
+        topTile.y += scene.spacingY * (scene.rows + 6);
+        
+        // Update simbol untuk efek variasi
+        const symbols = Object.keys(PAYTABLE.SYMBOLS);
+        const randomSymbol = symbols[Math.floor(Math.random() * symbols.length)];
+        topTile.symbolKey = randomSymbol;
+        topTile.list[2].setText(PAYTABLE.SYMBOLS[randomSymbol]?.label || '?');
+      }
+    }
+  }
+  
+  // Cek apakah semua reel sudah berhenti
+  if (scene.reelStates.every(state => state === 'stopped')) {
+    scene.onAllReelsStopped();
+  }
+};
+
+// ============ METHOD BARU: STOP REEL ============
+this.stopReel = (reelIndex) => {
+  if (scene.reelStates[reelIndex] !== 'spinning') return;
+  
+  scene.reelStates[reelIndex] = 'stopping';
+  scene.reelTargetSpeeds[reelIndex] = 0;
+  
+  // Efek partikel saat reel berhenti
+  const container = scene.reelContainers[reelIndex];
+  if (container) {
+    for (let i = 0; i < 5; i++) {
+      const particle = scene.add.circle(
+        container.x,
+        container.y + Phaser.Math.Between(-100, 100),
+        Phaser.Math.Between(2, 4),
+        0x9333ea
+      );
+      
+      scene.tweens.add({
+        targets: particle,
+        y: particle.y - Phaser.Math.Between(20, 50),
+        alpha: 0,
+        scale: 0,
+        duration: 500,
+        onComplete: () => particle.destroy()
+      });
+    }
+  }
+};
+
+// ============ METHOD BARU: FINALIZE REEL ============
+this.finalizeReel = (reelIndex) => {
+  const container = scene.reelContainers[reelIndex];
+  if (!container) return;
+  
+  // Snap ke posisi yang tepat
+  const targetY = scene.startY;
+  const offset = container.y - targetY;
+  const snapOffset = Math.round(offset / scene.spacingY) * scene.spacingY;
+  container.y = targetY + snapOffset;
+  
+  // Update visual tiles dengan simbol yang benar dari logicGrid
+  for (let r = 0; r < scene.rows; r++) {
+    const tile = container.getAt(r + 3); // +3 karena ada buffer di atas
+    if (tile) {
+      const symbolKey = scene.logicGrid[reelIndex][r];
+      tile.symbolKey = symbolKey;
+      tile.list[2].setText(PAYTABLE.SYMBOLS[symbolKey]?.label || '?');
+      
+      // Reset efek spinning
+      tile.setData('isSpinning', false);
+      tile.alpha = 1;
+      
+      // Simpan ke grid untuk win checking
+      if (!scene.grid[reelIndex]) scene.grid[reelIndex] = [];
+      scene.grid[reelIndex][r] = tile;
+      
+      // Efek landing
+      scene.tweens.add({
+        targets: tile,
+        scaleX: 1.1,
+        scaleY: 1.1,
+        duration: 100,
+        yoyo: true,
+        ease: 'Bounce.easeOut'
+      });
+    }
+  }
+  
+  // Hapus reel container setelah semua selesai
+  scene.time.delayedCall(500, () => {
+    if (scene.reelContainers[reelIndex]) {
+      scene.reelContainers[reelIndex].destroy();
+      scene.reelContainers[reelIndex] = null;
+    }
+  });
+};
+
+// ============ METHOD BARU: ON ALL REELS STOPPED ============
+this.onAllReelsStopped = () => {
+  // Hapus event loop
+  scene.time.removeAllEvents();
+  
+  // Tunggu sebentar lalu check win
+  scene.time.delayedCall(500, () => {
+    scene.checkWin(1);
+  });
+};
+
+// ============ UPDATE CASCADE DOWN ============
+this.cascadeDown = (nextRound) => {
+  // Hapus semua reel containers yang tersisa
+  scene.reelContainers?.forEach(container => {
+    if (container) container.destroy();
+  });
+  scene.reelContainers = [];
+  
+  // Rebuild visual tiles dari logicGrid dengan animasi cascade
+  for (let c = 0; c < scene.cols; c++) {
+    // Hapus tiles lama
+    if (scene.grid[c]) {
+      scene.grid[c].forEach(tile => {
+        if (tile && tile.active) tile.destroy();
+      });
+    }
+    scene.grid[c] = [];
+    
+    // Buat tiles baru dengan animasi cascade
+    for (let r = 0; r < scene.rows; r++) {
+      const symKey = scene.logicGrid[c][r];
+      const finalY = scene.startY + r * scene.spacingY;
+      const startY = finalY - (scene.rows - r) * 50; // Start dari atas dengan offset berbeda
+      
+      const tile = scene.createTile(c, r, startY, symKey);
+      tile.setAlpha(0);
+      scene.grid[c].push(tile);
+      
+      // Animasi cascade dengan delay per kolom dan baris
+      scene.time.delayedCall(c * 100 + r * 50, () => {
+        tile.setAlpha(1);
+        scene.tweens.add({
+          targets: tile,
+          y: finalY,
+          duration: 400 + r * 50, // Lebih lama untuk tiles di bawah
+          ease: 'Bounce.easeOut',
+          onComplete: () => {
+            // Efek ripple saat mendarat
+            const ripple = scene.add.circle(tile.x, tile.y, 5, 0x9333ea, 0.5);
+            scene.tweens.add({
+              targets: ripple,
+              radius: scene.tileW / 2,
+              alpha: 0,
+              duration: 300,
+              onComplete: () => ripple.destroy()
+            });
+            
+            // Cek apakah semua tiles sudah mendarat
+            const allLanded = scene.grid.flat().every(t => 
+              Math.abs(t.y - (scene.startY + scene.grid[0].indexOf(t) * scene.spacingY)) < 1
+            );
+            
+            if (allLanded) {
+              scene.time.delayedCall(300, () => scene.checkWin(nextRound));
+            }
+          }
+        });
+      });
+    }
+  }
+};
