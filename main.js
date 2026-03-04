@@ -137,26 +137,34 @@ function create() {
   }
 
   // ============ STATE ============
-  this.logicGrid = ReelManager.generateGrid(false);
-  this.grid = [[],[],[],[],[]];
-  this.isSpinning = false;
-  this.totalWin = 0;
-  this.balance = 1000000;
-  this.betAmount = 400;
-  this.lockedWilds = [];
-  this.freeSpinState = FreeSpinManager.create();
+this.logicGrid = ReelManager.generateGrid(false);
+this.grid = [[],[],[],[],[]];
+this.isSpinning = false;
+this.totalWin = 0;
+this.balance = 1000000;
+this.betAmount = 400;
+this.lockedWilds = [];
+this.freeSpinState = FreeSpinManager.create();
 
-  // ============ CREATE TILE ============
-  this.createTile = (col, row, yPos, symbolKey) => {
-    const container = scene.add.container(scene.startX + col * scene.spacingX, yPos);
-    container.setMask(scene.tileMask);
-    const bgColor = TILE_COLORS[symbolKey] || 0x1a1a2e;
-    const bg = scene.add.rectangle(0, 0, scene.tileW, scene.tileH, bgColor);
-    bg.setStrokeStyle(1.5, 0x9333ea);
-    const highlight = scene.add.rectangle(0, -scene.tileH/4, scene.tileW-6, scene.tileH/2-2, 0xffffff, 0.04);
-    const sym = PAYTABLE.SYMBOLS[symbolKey];
-    const label = sym ? sym.label : '?';
-    const txt = scene.add.text(0, 0, label, { fontSize: '30px' }).setOrigin(0.5);
+// BUFFER UNTUK LOOP SEAMLESS
+this.bufferSize = 3; // Jumlah tiles di atas dan bawah untuk seamless loop
+this.totalVisibleRows = this.rows + (this.bufferSize * 2);
+
+// ============ CREATE TILE ============
+this.createTile = (col, row, yPos, symbolKey) => {
+ const container = scene.add.container(scene.startX + col * scene.spacingX, yPos);
+ container.setMask(scene.tileMask);
+ 
+ const bgColor = TILE_COLORS[symbolKey] || 0x1a1a2e;
+ const bg = scene.add.rectangle(0, 0, scene.tileW, scene.tileH, bgColor);
+ bg.setStrokeStyle(1.5, 0x9333ea);
+ 
+ const highlight = scene.add.rectangle(0, -scene.tileH/4, scene.tileW-6, scene.tileH/2-2, 0xffffff, 0.04);
+ 
+ const sym = PAYTABLE.SYMBOLS[symbolKey];
+ const label = sym ? sym.label : '?';
+ const txt = scene.add.text(0, 0, label, { fontSize
+: '30px' }).setOrigin(0.5);
     container.add([bg, highlight, txt]);
     container.symbolKey = symbolKey;
 
